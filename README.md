@@ -10,10 +10,10 @@ source .venv/Scripts/activate
 pip install -e ".[dev]"
 ```
 
-## Usage
+## Piece Detection Usage
 
 ```bash
-python scripts/detect.py --image path/to/image.jpg --board-method xcorner
+python scripts/detect.py --image path/to/image.jpg --output path/to/output/image.jpg
 ```
 
 ## Structure
