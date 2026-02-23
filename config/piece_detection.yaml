@@ -1,1 +1,29 @@
-# Piece Detection Hyperparameters
+model:
+  weights: models/yolov11/best.pt
+  num_classes: 12
+
+# Index → piece label, matching the trained model's class order exactly.
+# Classes not listed here are silently ignored.
+classes:
+  1:  bb
+  2:  bk
+  3:  bn
+  4:  bp
+  5:  bq
+  6:  br
+  7:  wb
+  8:  wk
+  9:  wn
+  10: wp
+  11: wq
+  12: wr
+
+inference:
+  confidence_threshold: 0.25
+  iou_threshold: 0.45
+  image_size: 640
+  device: cpu
+
+mapping:
+  perspective_correction: true
+  flip_board: false
