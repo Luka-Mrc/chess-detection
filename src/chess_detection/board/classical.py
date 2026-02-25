@@ -8,6 +8,16 @@ import numpy as np
 import yaml
 
 
+# 90° CW rotation matrices in the 512×512 canonical space.
+# rotation_steps=1 → 90° CW, 2 → 180°, 3 → 270° CW
+CANONICAL_ROTATIONS = [
+    np.eye(3, dtype=np.float64),                                                    # 0°
+    np.array([[0, 1, 0], [-1, 0, 512], [0, 0, 1]], dtype=np.float64),              # 90° CW
+    np.array([[-1, 0, 512], [0, -1, 512], [0, 0, 1]], dtype=np.float64),           # 180°
+    np.array([[0, -1, 512], [1, 0, 0], [0, 0, 1]], dtype=np.float64),              # 270° CW
+]
+
+
 @dataclass
 class BoardResult:
     homography: Optional[np.ndarray] = None   # (3,3) image → 512×512 canonical
@@ -24,13 +34,15 @@ def _quad_to_canonical_homography(quad: np.ndarray) -> np.ndarray:
 
 
 def order_points(pts):
+    """Order 4 points as [TL, TR, BR, BL].
+
+    Uses sort-by-y then sort-by-x within each pair, which is robust for
+    perspective-distorted quads where the sum/diff heuristic breaks down.
+    """
     pts = np.array(pts, dtype=np.float32)
-    s = pts.sum(axis=1)
-    diff = np.diff(pts, axis=1).reshape(-1)
-    tl = pts[np.argmin(s)]
-    br = pts[np.argmax(s)]
-    tr = pts[np.argmin(diff)]
-    bl = pts[np.argmax(diff)]
+    by_y = pts[np.argsort(pts[:, 1])]   # top two have smaller y
+    tl, tr = sorted(by_y[:2], key=lambda p: p[0])
+    bl, br = sorted(by_y[2:], key=lambda p: p[0])
     return np.array([tl, tr, br, bl], dtype=np.float32)
 
 
@@ -250,12 +262,14 @@ class CannyBoardDetector:
         blur_ksize: int = 5,
         morph_ksize: int = 7,
         min_area_ratio: float = 0.08,
+        rotation_steps: int = 0,
     ):
         self.thresh1 = thresh1
         self.thresh2 = thresh2
         self.blur_ksize = blur_ksize
         self.morph_ksize = morph_ksize
         self.min_area_ratio = min_area_ratio
+        self.rotation_steps = rotation_steps % 4
 
     def detect(self, image: np.ndarray) -> BoardResult:
         quad, _ = detect_chessboard_quad(
@@ -269,6 +283,8 @@ class CannyBoardDetector:
         if quad is None:
             return BoardResult(success=False, metadata={"method": "canny"})
         H = _quad_to_canonical_homography(quad)
+        if self.rotation_steps:
+            H = CANONICAL_ROTATIONS[self.rotation_steps] @ H
         return BoardResult(homography=H, quad_image=quad, success=True, metadata={"method": "canny"})
 
     @classmethod
@@ -288,6 +304,7 @@ class HoughBoardDetector:
         max_line_gap: int = 20,
         angle_tol_deg: float = 20.0,
         min_area_ratio: float = 0.08,
+        rotation_steps: int = 0,
     ):
         self.blur_ksize = blur_ksize
         self.adapt_block = adapt_block
@@ -297,6 +314,7 @@ class HoughBoardDetector:
         self.max_line_gap = max_line_gap
         self.angle_tol_deg = angle_tol_deg
         self.min_area_ratio = min_area_ratio
+        self.rotation_steps = rotation_steps % 4
 
     def detect(self, image: np.ndarray) -> BoardResult:
         quad, _ = detect_chessboard_quad_hough(
@@ -313,6 +331,8 @@ class HoughBoardDetector:
         if quad is None:
             return BoardResult(success=False, metadata={"method": "hough"})
         H = _quad_to_canonical_homography(quad)
+        if self.rotation_steps:
+            H = CANONICAL_ROTATIONS[self.rotation_steps] @ H
         return BoardResult(homography=H, quad_image=quad, success=True, metadata={"method": "hough"})
 
     @classmethod

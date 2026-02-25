@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 
-from chess_detection.board.classical import BoardResult, order_points
+from chess_detection.board.classical import BoardResult, order_points, CANONICAL_ROTATIONS
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +262,7 @@ class DNNBoardDetector:
         saddle_score_pctl: float = 98.8,
         saddle_nms_win: int = 11,
         saddle_max_points: int = 800,
+        rotation_steps: int = 0,
     ):
         self.model_path = model_path
         self.threshold = threshold
@@ -273,6 +274,7 @@ class DNNBoardDetector:
         self.saddle_score_pctl = saddle_score_pctl
         self.saddle_nms_win = saddle_nms_win
         self.saddle_max_points = saddle_max_points
+        self.rotation_steps = rotation_steps % 4
         self._model = None
         self._device_obj = torch.device(device)
 
@@ -322,6 +324,10 @@ class DNNBoardDetector:
             # Inner corner (i,j) → canonical ((i+1)*64, (j+1)*64)
             S = np.array([[64, 0, 64], [0, 64, 64], [0, 0, 1]], dtype=np.float64)
             H_canonical = S @ best["H"].astype(np.float64)
+
+            # Optional rotation of the canonical frame (fixes board orientation)
+            if self.rotation_steps:
+                H_canonical = CANONICAL_ROTATIONS[self.rotation_steps] @ H_canonical
 
         except (ValueError, cv2.error) as e:
             return BoardResult(
