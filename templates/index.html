@@ -9,6 +9,8 @@
   <link rel="stylesheet"
         href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
 
+  <!-- chess.js — SAN conversion and FEN validation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -150,17 +152,33 @@
       flex: 1;
       min-width: 340px;
       display: flex;
+      flex-direction: row;
+      gap: 1.25rem;
+      align-items: flex-start;
+    }
+
+    .board-column {
+      display: flex;
       flex-direction: column;
       gap: 1.25rem;
+      flex: 0 0 auto;
     }
 
     #board-wrapper {
-      width: 100%;
+      width: 480px;
       max-width: 480px;
+      position: relative;
     }
 
     #board {
       width: 100%;
+    }
+
+    #arrowCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
     }
 
     /* Status / FEN display */
@@ -220,6 +238,31 @@
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Side-to-move toggle */
+    .side-toggle { display:flex; border-radius:6px; overflow:hidden; border:1px solid #0f3460; }
+    .side-toggle button { flex:1; padding:0.45rem 0; border:none; background:#0f3460; color:#a0a0c0; font-size:0.85rem; cursor:pointer; transition:background 0.15s,color 0.15s; }
+    .side-toggle button.active { background:#e94560; color:#fff; font-weight:600; }
+    .side-toggle button:hover:not(.active) { background:#1a4a80; color:#e0e0e0; }
+
+    /* Analysis card */
+    #analysis-card { background:#16213e; border:1px solid #0f3460; border-radius:8px; padding:1.25rem; min-width:220px; max-width:280px; flex-shrink:0; }
+    #analysis-card h2 { font-size:0.85rem; text-transform:uppercase; letter-spacing:0.1em; color:#e94560; margin-bottom:0.75rem; }
+
+    /* Eval bar */
+    .eval-bar-wrap { display:flex; align-items:center; gap:0.75rem; margin-bottom:0.85rem; }
+    .eval-bar { width:18px; height:160px; border-radius:4px; overflow:hidden; border:1px solid #0f3460; display:flex; flex-direction:column; flex-shrink:0; }
+    .eval-bar-white { background:#f0ebe3; transition:flex 0.4s ease; }
+    .eval-bar-black { background:#2a2a2a; transition:flex 0.4s ease; }
+    .eval-score-label { font-size:1.1rem; font-weight:700; color:#e0e0e0; font-family:monospace; min-width:60px; }
+
+    /* Moves table */
+    .moves-table { width:100%; border-collapse:collapse; }
+    .moves-table th { font-size:0.75rem; text-transform:uppercase; letter-spacing:0.08em; color:#7a7a9a; padding:0.3rem 0.5rem; text-align:left; border-bottom:1px solid #0f3460; }
+    .moves-table td { padding:0.45rem 0.5rem; font-size:0.9rem; border-bottom:1px solid rgba(15,52,96,0.5); }
+    .moves-table td:first-child { color:#7a7a9a; font-size:0.8rem; width:28px; }
+    .move-san { font-family:monospace; font-weight:600; color:#e0e0e0; }
+    .move-score { text-align:right; font-family:monospace; font-size:0.85rem; color:#a0c4ff; }
   </style>
 </head>
 <body>
@@ -260,6 +303,14 @@
       </div>
     </div>
 
+    <div class="card">
+      <h2>Side to Move</h2>
+      <div class="side-toggle">
+        <button id="sideWhite" class="active" type="button">White</button>
+        <button id="sideBlack" type="button">Black</button>
+      </div>
+    </div>
+
     <button id="detectBtn" disabled>Detect Position</button>
     <button id="rotateBtn" disabled>&#8635; Rotate 90°</button>
 
@@ -268,14 +319,40 @@
   <!-- Right panel -->
   <div class="right-panel">
 
-    <div id="board-wrapper">
-      <div id="board"></div>
+    <div class="board-column">
+      <div id="board-wrapper">
+        <div id="board"></div>
+        <canvas id="arrowCanvas"></canvas>
+      </div>
+
+      <div id="status-card">
+        <h2>Result</h2>
+        <p id="statusLine">Upload an image and click Detect.</p>
+        <div id="fenBox"></div>
+      </div>
     </div>
 
-    <div id="status-card">
-      <h2>Result</h2>
-      <p id="statusLine">Upload an image and click Detect.</p>
-      <div id="fenBox"></div>
+    <div id="analysis-card">
+      <h2>Engine Analysis</h2>
+      <div id="analysis-placeholder" style="font-size:0.85rem;color:#7a7a9a;">
+        Upload an image and detect a position to run analysis.
+      </div>
+      <div id="analysis-content" style="display:none;">
+        <div class="eval-bar-wrap">
+          <div class="eval-bar">
+            <div class="eval-bar-white" id="evalBarWhite" style="flex:50;"></div>
+            <div class="eval-bar-black" id="evalBarBlack" style="flex:50;"></div>
+          </div>
+          <div>
+            <div class="eval-score-label" id="evalScoreLabel">0.00</div>
+            <div style="font-size:0.72rem;color:#7a7a9a;margin-top:0.25rem;" id="evalDepthLabel"></div>
+          </div>
+        </div>
+        <table class="moves-table">
+          <thead><tr><th>#</th><th>Move</th><th style="text-align:right;">Score</th></tr></thead>
+          <tbody id="movesBody"></tbody>
+        </table>
+      </div>
     </div>
 
   </div>
@@ -387,6 +464,7 @@
           board.position(currentPosition, false);
           fenBox.textContent = data.fen;
           fenBox.style.display = 'block';
+          analyzePosition(data.fen);
           rotateBtn.disabled = false;
         } else {
           board.position('empty');
@@ -407,6 +485,283 @@
       detectBtn.textContent = 'Detect Position';
     }
   });
+</script>
+
+<script>
+/* ====================================================
+   Stockfish.js engine analysis
+   ==================================================== */
+(function () {
+  'use strict';
+
+  // ── State ──────────────────────────────────────────
+  let engine          = null;
+  let engineReady     = false;
+  let currentFen      = null;   // piece-placement FEN from last detection
+  let pendingResults  = {};     // multipv index → best info at current depth
+  let latestDepth     = 0;
+
+  // ── DOM refs ───────────────────────────────────────
+  const analysisPlaceholder = document.getElementById('analysis-placeholder');
+  const analysisContent     = document.getElementById('analysis-content');
+  const evalBarWhite        = document.getElementById('evalBarWhite');
+  const evalBarBlack        = document.getElementById('evalBarBlack');
+  const evalScoreLabel      = document.getElementById('evalScoreLabel');
+  const evalDepthLabel      = document.getElementById('evalDepthLabel');
+  const movesBody           = document.getElementById('movesBody');
+  const sideWhiteBtn        = document.getElementById('sideWhite');
+  const sideBlackBtn        = document.getElementById('sideBlack');
+  const arrowCanvas         = document.getElementById('arrowCanvas');
+  const arrowCtx            = arrowCanvas.getContext('2d');
+
+  // ── Side-to-move toggle ────────────────────────────
+  let sideToMove = 'w';   // 'w' or 'b'
+
+  sideWhiteBtn.addEventListener('click', () => {
+    sideToMove = 'w';
+    sideWhiteBtn.classList.add('active');
+    sideBlackBtn.classList.remove('active');
+    if (currentFen) analyzePosition(currentFen);
+  });
+
+  sideBlackBtn.addEventListener('click', () => {
+    sideToMove = 'b';
+    sideBlackBtn.classList.add('active');
+    sideWhiteBtn.classList.remove('active');
+    if (currentFen) analyzePosition(currentFen);
+  });
+
+  // ── Engine init ────────────────────────────────────
+  function initEngine() {
+    try {
+      engine = new Worker('/static/stockfish.js');
+    } catch (e) {
+      console.error('Could not create Stockfish worker:', e);
+      return;
+    }
+    engine.onmessage = handleEngineMessage;
+    engine.postMessage('uci');
+    engine.postMessage('setoption name MultiPV value 3');
+    engine.postMessage('isready');
+  }
+
+  // ── Message handler ────────────────────────────────
+  function handleEngineMessage(event) {
+    const line = typeof event === 'string' ? event : (event.data || '');
+
+    if (line === 'readyok') {
+      engineReady = true;
+      return;
+    }
+
+    if (line.startsWith('info') && line.includes('multipv')) {
+      parseInfoLine(line);
+      return;
+    }
+
+    if (line.startsWith('bestmove')) {
+      renderResults();
+    }
+  }
+
+  // ── Parse UCI info line ────────────────────────────
+  function parseInfoLine(line) {
+    const depthMatch   = line.match(/\bdepth (\d+)/);
+    const multipvMatch = line.match(/\bmultipv (\d+)/);
+    const cpMatch      = line.match(/\bscore cp (-?\d+)/);
+    const mateMatch    = line.match(/\bscore mate (-?\d+)/);
+    const pvMatch      = line.match(/\bpv ([a-h][1-8][a-h][1-8][qrbn]?)/);
+
+    if (!multipvMatch || !pvMatch) return;
+
+    const depth = depthMatch ? parseInt(depthMatch[1]) : 0;
+    const mpv   = parseInt(multipvMatch[1]);
+    const move  = pvMatch[1];
+
+    let score = cpMatch  ? parseInt(cpMatch[1])  : null;
+    let mate  = mateMatch ? parseInt(mateMatch[1]) : null;
+
+    if (depth < latestDepth) return;   // ignore stale depths
+    latestDepth = depth;
+
+    // Convert to White's POV (engine gives side-to-move POV)
+    if (score !== null && sideToMove === 'b') score = -score;
+    if (mate  !== null && sideToMove === 'b') mate  = -mate;
+
+    // SAN conversion via chess.js
+    let san = move;
+    try {
+      const fullFen = currentFen + ' ' + sideToMove + ' - - 0 1';
+      const chess   = new Chess(fullFen);
+      const result  = chess.move({ from: move.slice(0, 2), to: move.slice(2, 4), promotion: move[4] || 'q' });
+      if (result) san = result.san;
+    } catch (e) { /* keep UCI move as fallback */ }
+
+    pendingResults[mpv] = { depth, move, san, score, mate };
+
+    // Live depth label
+    evalDepthLabel.textContent = 'depth ' + depth;
+  }
+
+  // ── Arrow drawing ──────────────────────────────────
+  let lastArrowMoves = [];
+
+  function squareCenter(sq, boardSize) {
+    const sqSize = boardSize / 8;
+    const file   = sq.charCodeAt(0) - 97;   // a=0 … h=7
+    const rank   = parseInt(sq[1]);          // 1–8
+    return {
+      x: (file + 0.5) * sqSize,
+      y: (8 - rank + 0.5) * sqSize          // rank 8 at top (y≈0), rank 1 at bottom
+    };
+  }
+
+  function drawArrowShape(ctx, x1, y1, x2, y2, color, alpha, lw) {
+    const angle   = Math.atan2(y2 - y1, x2 - x1);
+    const headLen = lw * 2.8;
+    // Shorten the shaft so the arrowhead sits cleanly at the tip
+    const tx = x2 - Math.cos(angle) * headLen * 0.85;
+    const ty = y2 - Math.sin(angle) * headLen * 0.85;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.fillStyle   = color;
+    ctx.lineWidth   = lw;
+    ctx.lineCap     = 'round';
+
+    // Shaft
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+
+    // Arrowhead (wider angle = more visible)
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 5),
+               y2 - headLen * Math.sin(angle - Math.PI / 5));
+    ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 5),
+               y2 - headLen * Math.sin(angle + Math.PI / 5));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawArrows(moves) {
+    lastArrowMoves = moves;
+    const boardEl = document.getElementById('board');
+    const size    = boardEl.offsetWidth;
+    arrowCanvas.width  = size;
+    arrowCanvas.height = size;
+    arrowCtx.clearRect(0, 0, size, size);
+
+    const sq = size / 8;
+    const styles = [
+      { color: '#15781B', alpha: 0.88, lw: sq * 0.18  },  // best move — green
+      { color: '#0057e7', alpha: 0.65, lw: sq * 0.13  },  // 2nd — blue
+      { color: '#0057e7', alpha: 0.42, lw: sq * 0.10  },  // 3rd — blue (dim)
+    ];
+
+    moves.forEach(function (m, i) {
+      if (i >= styles.length) return;
+      const from = squareCenter(m.from, size);
+      const to   = squareCenter(m.to,   size);
+      const s    = styles[i];
+      drawArrowShape(arrowCtx, from.x, from.y, to.x, to.y, s.color, s.alpha, s.lw);
+    });
+  }
+
+  function clearArrows() {
+    lastArrowMoves = [];
+    arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
+  }
+
+  // Redraw on resize (board.resize() changes the board's pixel size)
+  window.addEventListener('resize', function () {
+    if (lastArrowMoves.length) drawArrows(lastArrowMoves);
+  });
+
+  // ── Render results ─────────────────────────────────
+  function renderResults() {
+    const keys = Object.keys(pendingResults).map(Number).sort(function (a, b) { return a - b; });
+    if (!keys.length) return;
+
+    analysisPlaceholder.style.display = 'none';
+    analysisContent.style.display     = 'block';
+
+    const best = pendingResults[keys[0]];
+    let cp = (best.mate !== null)
+      ? (best.mate > 0 ? 1000 : -1000)
+      : (best.score !== null ? best.score : 0);
+
+    const whitePct = (Math.min(Math.max(cp, -1000), 1000) + 1000) / 2000 * 100;
+    evalBarWhite.style.flex = String(whitePct);
+    evalBarBlack.style.flex = String(100 - whitePct);
+
+    if (best.mate !== null) {
+      evalScoreLabel.textContent = 'M' + Math.abs(best.mate);
+    } else {
+      const s = best.score !== null ? best.score : 0;
+      evalScoreLabel.textContent = (s >= 0 ? '+' : '') + (s / 100).toFixed(2);
+    }
+
+    movesBody.innerHTML = '';
+    keys.forEach(function (k, i) {
+      const r  = pendingResults[k];
+      const tr = document.createElement('tr');
+      let scoreText;
+      if (r.mate !== null) {
+        scoreText = 'M' + Math.abs(r.mate);
+      } else {
+        const s = r.score !== null ? r.score : 0;
+        scoreText = (s >= 0 ? '+' : '') + (s / 100).toFixed(2);
+      }
+      tr.innerHTML =
+        '<td>' + (i + 1) + '</td>' +
+        '<td><span class="move-san">' + r.san + '</span></td>' +
+        '<td class="move-score">' + scoreText + '</td>';
+      movesBody.appendChild(tr);
+    });
+
+    evalDepthLabel.textContent = 'depth ' + best.depth + ' \u2014 done';
+
+    // Draw arrows for top moves (UCI move format: "e2e4", "g1f3", etc.)
+    drawArrows(keys.map(function (k) {
+      const mv = pendingResults[k].move;
+      return { from: mv.slice(0, 2), to: mv.slice(2, 4) };
+    }));
+  }
+
+  // ── Public: called after each detection ───────────
+  window.analyzePosition = function (piecePlacementFen) {
+    currentFen     = piecePlacementFen;
+    pendingResults = {};
+    latestDepth    = 0;
+
+    // Reset UI
+    clearArrows();
+    analysisPlaceholder.style.display = 'none';
+    analysisContent.style.display     = 'block';
+    evalDepthLabel.textContent        = 'depth 0';
+    evalScoreLabel.textContent        = '\u2026';
+    movesBody.innerHTML               = '';
+
+    if (!engineReady) {
+      evalDepthLabel.textContent = 'Engine loading\u2026';
+      setTimeout(function () { window.analyzePosition(piecePlacementFen); }, 500);
+      return;
+    }
+
+    const fullFen = piecePlacementFen + ' ' + sideToMove + ' - - 0 1';
+    engine.postMessage('stop');
+    engine.postMessage('position fen ' + fullFen);
+    engine.postMessage('go depth 15');
+  };
+
+  // ── Boot ───────────────────────────────────────────
+  initEngine();
+})();
 </script>
 
 </body>
