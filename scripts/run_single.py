@@ -21,7 +21,7 @@ IMAGE_PATH = r"D:\Faks\chess detection\data\splits\test\49c2afbbe5726160b289f7c0
 
 PIECE_CONFIG = "config/piece_detection.yaml"
 BOARD_CONFIG = "config/board_detection.yaml"
-OUTPUT_DIR   = Path("data/splits/results")
+OUTPUT_DIR   = Path("data/results")
 
 from chess_detection.board.dnn      import DNNBoardDetector
 from chess_detection.board.classical import CannyBoardDetector, HoughBoardDetector
