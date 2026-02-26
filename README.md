@@ -10,10 +10,24 @@ source .venv/Scripts/activate
 pip install -e ".[dev]"
 ```
 
-## Piece Detection Usage
+## Usage
 
+**Full pipeline** (board detection + pieces + FEN):
 ```bash
-python scripts/detect.py --image path/to/image.jpg --output path/to/output/image.jpg
+python scripts/detect.py --image path/to/image.jpg --output path/to/output.jpg
+```
+
+**Piece detection only** (no board, no FEN):
+```bash
+python scripts/detect.py --image path/to/image.jpg --no-board
+```
+
+**Custom configs:**
+```bash
+python scripts/detect.py --image path/to/image.jpg \
+  --board-config config/board_detection.yaml \
+  --piece-config config/piece_detection.yaml \
+  --output path/to/output.jpg
 ```
 
 ## Structure

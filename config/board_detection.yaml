@@ -1,1 +1,35 @@
-# Board Detection Hyperparameters
+model:
+  weights: models/CNN-chessboard/xcorner_dnn_best.pt
+
+inference:
+  threshold: 0.5
+  device: cpu
+
+dnn:
+  patch_size: 32
+  ransac_iters: 5000
+  ransac_max_reproj: 0.55
+  ransac_min_quad_area_ratio: 0.22
+  saddle_score_pctl: 98.8
+  saddle_nms_win: 11
+  saddle_max_points: 800
+  rotation_steps: 1  # 90° CW rotations applied to canonical frame (0=none, 1=90°CW, 2=180°, 3=270°CW)
+
+canny:
+  thresh1: 50
+  thresh2: 150
+  blur_ksize: 5
+  morph_ksize: 7
+  min_area_ratio: 0.08
+  rotation_steps: 1  # 90° CW rotations applied to canonical frame (0=none, 1=90°CW, 2=180°, 3=270°CW)
+
+hough:
+  blur_ksize: 5
+  adapt_block: 31
+  adapt_C: 7
+  hough_thresh: 120
+  min_line_length_ratio: 0.20
+  max_line_gap: 20
+  angle_tol_deg: 20.0
+  min_area_ratio: 0.08
+  rotation_steps: 1  # 90° CW rotations applied to canonical frame (0=none, 1=90°CW, 2=180°, 3=270°CW)

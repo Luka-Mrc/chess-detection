@@ -3,26 +3,30 @@ model:
   num_classes: 12
 
 # Index → piece label, matching the trained model's class order exactly.
-# Classes not listed here are silently ignored.
+# Verified against model.names at runtime.
 classes:
-  1:  bb
-  2:  bk
-  3:  bn
-  4:  bp
-  5:  bq
-  6:  br
-  7:  wb
-  8:  wk
-  9:  wn
-  10: wp
-  11: wq
-  12: wr
+  0:  bb
+  1:  bk
+  2:  bn
+  3:  bp
+  4:  bq
+  5:  br
+  6:  wb
+  7:  wk
+  8:  wn
+  9:  wp
+  10: wq
+  11: wr
 
 inference:
   confidence_threshold: 0.25
   iou_threshold: 0.45
   image_size: 640
   device: cpu
+  # Reject detections whose bbox area exceeds this fraction of the image area.
+  # A piece covering >6% of the image (~4 squares) is almost certainly a bad detection
+  # from the additional training dataset's oversized annotations.
+  max_bbox_area_ratio: 0.06
 
 mapping:
   perspective_correction: true
