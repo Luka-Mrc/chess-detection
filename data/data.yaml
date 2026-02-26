@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 12
+names: ['black-bishop', 'black-king', 'black-knight', 'black-pawn', 'black-queen', 'black-rook', 'white-bishop', 'white-king', 'white-knight', 'white-pawn', 'white-queen', 'white-rook']
+
+roboflow:
+  workspace: anelas-workspace
+  project: chess-p-lpmt6
+  version: 11
+  license: CC BY 4.0
+  url: https://app.roboflow.com/anelas-workspace/chess-p-lpmt6/11
