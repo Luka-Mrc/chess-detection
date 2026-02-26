@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chess Position Detector</title>
+
+  <!-- chessboard.js -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #16213e;
+      padding: 1rem 2rem;
+      border-bottom: 2px solid #0f3460;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      color: #e94560;
+      letter-spacing: 0.05em;
+    }
+
+    .container {
+      display: flex;
+      flex: 1;
+      gap: 2rem;
+      padding: 2rem;
+      flex-wrap: wrap;
+    }
+
+    /* Left panel */
+    .left-panel {
+      flex: 0 0 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .card {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 1.25rem;
+    }
+
+    .card h2 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #e94560;
+      margin-bottom: 0.75rem;
+    }
+
+    /* File input */
+    #imageInput {
+      display: none;
+    }
+
+    .file-label {
+      display: block;
+      text-align: center;
+      padding: 0.6rem 1rem;
+      background: #0f3460;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-size: 0.9rem;
+    }
+
+    .file-label:hover { background: #e94560; }
+
+    #preview {
+      margin-top: 0.75rem;
+      width: 100%;
+      border-radius: 6px;
+      display: none;
+      border: 1px solid #0f3460;
+    }
+
+    /* Method radios */
+    .method-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .method-group label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      cursor: pointer;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      transition: background 0.15s;
+    }
+
+    .method-group label:hover { background: #0f3460; }
+
+    .method-group input[type="radio"] {
+      accent-color: #e94560;
+    }
+
+    /* Detect button */
+    #detectBtn {
+      width: 100%;
+      padding: 0.75rem;
+      background: #e94560;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+    }
+
+    #detectBtn:hover:not(:disabled) { background: #c73652; }
+    #detectBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Rotate button */
+    #rotateBtn {
+      width: 100%;
+      padding: 0.75rem;
+      background: #0f3460;
+      color: #e0e0e0;
+      border: 1px solid #e94560;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+    }
+
+    #rotateBtn:hover:not(:disabled) { background: #1a4a80; }
+    #rotateBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Right panel */
+    .right-panel {
+      flex: 1;
+      min-width: 340px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    #board-wrapper {
+      width: 100%;
+      max-width: 480px;
+    }
+
+    #board {
+      width: 100%;
+    }
+
+    /* Status / FEN display */
+    #status-card {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 1.25rem;
+      max-width: 480px;
+    }
+
+    #status-card h2 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #e94560;
+      margin-bottom: 0.75rem;
+    }
+
+    #statusLine {
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    #fenBox {
+      font-family: monospace;
+      font-size: 0.85rem;
+      word-break: break-all;
+      background: #0f3460;
+      padding: 0.6rem;
+      border-radius: 4px;
+      display: none;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2em 0.55em;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .badge-ok  { background: #1a7a4a; color: #a3ffcc; }
+    .badge-err { background: #7a1a1a; color: #ffaaaa; }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #e94560;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Chess Position Detector</h1>
+</header>
+
+<div class="container">
+
+  <!-- Left panel -->
+  <div class="left-panel">
+
+    <div class="card">
+      <h2>Image</h2>
+      <label class="file-label" for="imageInput">
+        📷 Upload / Capture
+      </label>
+      <input type="file" id="imageInput" accept="image/*" capture="environment">
+      <img id="preview" alt="Preview">
+    </div>
+
+    <div class="card">
+      <h2>Detection Method</h2>
+      <div class="method-group">
+        <label>
+          <input type="radio" name="method" value="canny" checked>
+          Canny (classical edge)
+        </label>
+        <label>
+          <input type="radio" name="method" value="hough">
+          Hough (line transform)
+        </label>
+        <label>
+          <input type="radio" name="method" value="dnn">
+          DNN (X-corner classifier)
+        </label>
+      </div>
+    </div>
+
+    <button id="detectBtn" disabled>Detect Position</button>
+    <button id="rotateBtn" disabled>&#8635; Rotate 90°</button>
+
+  </div>
+
+  <!-- Right panel -->
+  <div class="right-panel">
+
+    <div id="board-wrapper">
+      <div id="board"></div>
+    </div>
+
+    <div id="status-card">
+      <h2>Result</h2>
+      <p id="statusLine">Upload an image and click Detect.</p>
+      <div id="fenBox"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- jQuery (required by chessboard.js) -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<!-- chessboard.js — use jsDelivr which reliably serves npm package files -->
+<script src="https://cdn.jsdelivr.net/npm/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+
+<script>
+  const board = Chessboard('board', {
+  position: 'empty',
+  pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+});
+
+  window.addEventListener('resize', board.resize);
+
+  const imageInput = document.getElementById('imageInput');
+  const preview    = document.getElementById('preview');
+  const detectBtn  = document.getElementById('detectBtn');
+  const rotateBtn  = document.getElementById('rotateBtn');
+  const statusLine = document.getElementById('statusLine');
+  const fenBox     = document.getElementById('fenBox');
+
+  let selectedFile    = null;
+  let currentPosition = null; // chessboard.js position object { a1: 'wR', ... }
+
+  // Parse the pipeline's piece-placement FEN into a chessboard.js position object.
+  function fenToPos(fen) {
+    const pieceMap = {
+      'P': 'wP', 'R': 'wR', 'N': 'wN', 'B': 'wB', 'Q': 'wQ', 'K': 'wK',
+      'p': 'bP', 'r': 'bR', 'n': 'bN', 'b': 'bB', 'q': 'bQ', 'k': 'bK',
+    };
+    const pos   = {};
+    const ranks = fen.split('/');
+    for (let ri = 0; ri < 8; ri++) {
+      const rankNum = 8 - ri;
+      let col = 0;
+      for (const ch of ranks[ri]) {
+        if (ch >= '1' && ch <= '8') {
+          col += parseInt(ch);
+        } else {
+          if (pieceMap[ch]) pos[String.fromCharCode(97 + col) + rankNum] = pieceMap[ch];
+          col++;
+        }
+      }
+    }
+    return pos;
+  }
+
+  // Rotate all piece positions 90° clockwise.
+  // (file_idx, rank) → (rank-1, 8-file_idx)
+  // Corners: a1→a8, a8→h8, h8→h1, h1→a1. Four clicks = full rotation.
+  function rotateCW90(pos) {
+    const newPos = {};
+    for (const [sq, piece] of Object.entries(pos)) {
+      const fileIdx = sq.charCodeAt(0) - 97;
+      const rank    = parseInt(sq[1]);
+      newPos[String.fromCharCode(97 + rank - 1) + (8 - fileIdx)] = piece;
+    }
+    return newPos;
+  }
+
+  imageInput.addEventListener('change', () => {
+    selectedFile = imageInput.files[0];
+    if (!selectedFile) return;
+    preview.src = URL.createObjectURL(selectedFile);
+    preview.style.display = 'block';
+    detectBtn.disabled = false;
+  });
+
+  rotateBtn.addEventListener('click', () => {
+    if (!currentPosition) return;
+    currentPosition = rotateCW90(currentPosition);
+    board.position(currentPosition, false);
+  });
+
+  detectBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    const method = document.querySelector('input[name="method"]:checked').value;
+
+    detectBtn.disabled = true;
+    rotateBtn.disabled = true;
+    detectBtn.innerHTML = '<span class="spinner"></span>Detecting\u2026';
+    statusLine.innerHTML = 'Running pipeline\u2026';
+    fenBox.style.display = 'none';
+
+    const formData = new FormData();
+    formData.append('image', selectedFile);
+    formData.append('method', method);
+
+    try {
+      const resp = await fetch('/detect', { method: 'POST', body: formData });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        statusLine.innerHTML = `<span class="badge badge-err">Error</span> ${data.error || 'Server error'}`;
+        board.position('empty');
+        currentPosition = null;
+      } else {
+        statusLine.innerHTML = data.success
+          ? '<span class="badge badge-ok">Board found</span>'
+          : '<span class="badge badge-err">Board not found</span>';
+
+        if (data.fen) {
+          currentPosition = fenToPos(data.fen);
+          board.position(currentPosition, false);
+          fenBox.textContent = data.fen;
+          fenBox.style.display = 'block';
+          rotateBtn.disabled = false;
+        } else {
+          board.position('empty');
+          fenBox.style.display = 'none';
+          currentPosition = null;
+        }
+
+        if (!data.success) {
+          statusLine.innerHTML += ' \u2014 board detection failed; piece squares may be incorrect.';
+        }
+      }
+    } catch (err) {
+      statusLine.innerHTML = `<span class="badge badge-err">Error</span> ${err.message}`;
+      board.position('empty');
+      currentPosition = null;
+    } finally {
+      detectBtn.disabled = false;
+      detectBtn.textContent = 'Detect Position';
+    }
+  });
+</script>
+
+</body>
+</html>
