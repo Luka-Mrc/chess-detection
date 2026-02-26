@@ -12,7 +12,30 @@ pip install -e ".[dev]"
 
 ## Usage
 
-**Full pipeline** (board detection + pieces + FEN):
+**Full pipeline Flask App** (board detection + pieces + FEN):
+```bash
+python app.py
+```
+Starts a local server at `http://localhost:5000`.
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/` | GET | Web UI |
+| `/detect` | POST | Detect position, return FEN |
+
+`POST /detect` form parameters:
+
+| Parameter | Type | Values | Default |
+|-----------|------|---------|---------|
+| `image` | file | any image | required |
+| `method` | string | `canny`, `hough`, `dnn` | `canny` |
+
+Response:
+```json
+{"fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR", "success": true}
+```
+
+**Full pipeline cli** (board detection + pieces + FEN):
 ```bash
 python scripts/detect.py --image path/to/image.jpg --output path/to/output.jpg
 ```
