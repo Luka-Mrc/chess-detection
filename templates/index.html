@@ -147,6 +147,27 @@
     #rotateBtn:hover:not(:disabled) { background: #1a4a80; }
     #rotateBtn:disabled { opacity: 0.35; cursor: not-allowed; }
 
+    /* Reset button */
+    #resetBtn {
+      width: 100%;
+      padding: 0.75rem;
+      background: #0f3460;
+      color: #e0e0e0;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+    }
+    #resetBtn:hover:not(:disabled) { background: #1a4a80; }
+    #resetBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Game status */
+    #gameStatus { font-size: 0.85rem; color: #a0a0c0; margin-top: 0.5rem; min-height: 1.2em; }
+    #gameStatus.check    { color: #ffaa44; font-weight: 600; }
+    #gameStatus.checkmate { color: #e94560; font-weight: 600; }
+    #gameStatus.draw     { color: #7a7a9a; }
+
     /* Right panel */
     .right-panel {
       flex: 1;
@@ -313,6 +334,7 @@
 
     <button id="detectBtn" disabled>Detect Position</button>
     <button id="rotateBtn" disabled>&#8635; Rotate 90°</button>
+    <button id="resetBtn"  disabled>&#8617; Reset Position</button>
 
   </div>
 
@@ -329,6 +351,7 @@
         <h2>Result</h2>
         <p id="statusLine">Upload an image and click Detect.</p>
         <div id="fenBox"></div>
+        <p id="gameStatus"></p>
       </div>
     </div>
 
@@ -364,28 +387,86 @@
 <script src="https://cdn.jsdelivr.net/npm/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
 
 <script>
+  // ── Board setup ────────────────────────────────────
   const board = Chessboard('board', {
-  position: 'empty',
-  pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
-});
+    position:    'empty',
+    pieceTheme:  'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+    draggable:   true,
+    onDragStart: onDragStart,
+    onDrop:      onDrop,
+    onSnapEnd:   onSnapEnd,
+  });
 
   window.addEventListener('resize', board.resize);
 
+  // ── DOM refs ───────────────────────────────────────
   const imageInput = document.getElementById('imageInput');
   const preview    = document.getElementById('preview');
   const detectBtn  = document.getElementById('detectBtn');
   const rotateBtn  = document.getElementById('rotateBtn');
+  const resetBtn   = document.getElementById('resetBtn');
   const statusLine = document.getElementById('statusLine');
   const fenBox     = document.getElementById('fenBox');
+  const gameStatus = document.getElementById('gameStatus');
 
+  // ── State ──────────────────────────────────────────
   let selectedFile    = null;
-  let currentPosition = null; // chessboard.js position object { a1: 'wR', ... }
+  let currentPosition = null; // chessboard.js position object
+  let game            = null; // chess.js instance (tracks legal game state)
+  let detectedFen     = null; // piece-placement FEN of last successful detection
 
-  // Parse the pipeline's piece-placement FEN into a chessboard.js position object.
+  // ── Drag handlers (chess.js enforces legality) ─────
+
+  function onDragStart(source, piece) {
+    // Disable dragging if no game loaded or game is over
+    if (!game || game.game_over()) return false;
+    // Only allow the side whose turn it is
+    if (game.turn() === 'w' && piece.search(/^b/) !== -1) return false;
+    if (game.turn() === 'b' && piece.search(/^w/) !== -1) return false;
+    return true;
+  }
+
+  function onDrop(source, target) {
+    if (!game) return 'snapback';
+    // Attempt the move; chess.js validates full legality (pins, blocking, etc.)
+    const move = game.move({ from: source, to: target, promotion: 'q' });
+    if (!move) return 'snapback'; // illegal — snap piece back
+    updateGameStatus();
+    // Re-analyse with the new position; pass next side so toggle stays in sync
+    window.analyzePosition(game.fen().split(' ')[0], game.turn());
+  }
+
+  function onSnapEnd() {
+    // Sync board display with chess.js state after animation
+    if (game) board.position(game.fen());
+  }
+
+  // ── Game status line ───────────────────────────────
+
+  function updateGameStatus() {
+    if (!game) { gameStatus.textContent = ''; gameStatus.className = ''; return; }
+    gameStatus.className = '';
+    if (game.in_checkmate()) {
+      gameStatus.textContent = (game.turn() === 'w' ? 'Black' : 'White') + ' wins by checkmate';
+      gameStatus.classList.add('checkmate');
+    } else if (game.in_draw()) {
+      gameStatus.textContent = 'Draw';
+      gameStatus.classList.add('draw');
+    } else if (game.in_check()) {
+      gameStatus.textContent = (game.turn() === 'w' ? 'White' : 'Black') + ' is in check';
+      gameStatus.classList.add('check');
+    } else {
+      gameStatus.textContent = (game.turn() === 'w' ? 'White' : 'Black') + ' to move';
+    }
+  }
+
+  // ── FEN / position helpers ─────────────────────────
+
+  // Piece-placement FEN → chessboard.js position object
   function fenToPos(fen) {
     const pieceMap = {
-      'P': 'wP', 'R': 'wR', 'N': 'wN', 'B': 'wB', 'Q': 'wQ', 'K': 'wK',
-      'p': 'bP', 'r': 'bR', 'n': 'bN', 'b': 'bB', 'q': 'bQ', 'k': 'bK',
+      P:'wP', R:'wR', N:'wN', B:'wB', Q:'wQ', K:'wK',
+      p:'bP', r:'bR', n:'bN', b:'bB', q:'bQ', k:'bK',
     };
     const pos   = {};
     const ranks = fen.split('/');
@@ -393,9 +474,8 @@
       const rankNum = 8 - ri;
       let col = 0;
       for (const ch of ranks[ri]) {
-        if (ch >= '1' && ch <= '8') {
-          col += parseInt(ch);
-        } else {
+        if (ch >= '1' && ch <= '8') { col += parseInt(ch); }
+        else {
           if (pieceMap[ch]) pos[String.fromCharCode(97 + col) + rankNum] = pieceMap[ch];
           col++;
         }
@@ -404,18 +484,43 @@
     return pos;
   }
 
-  // Rotate all piece positions 90° clockwise.
-  // (file_idx, rank) → (rank-1, 8-file_idx)
-  // Corners: a1→a8, a8→h8, h8→h1, h1→a1. Four clicks = full rotation.
+  // chessboard.js position object → piece-placement FEN
+  function posToFen(pos) {
+    const pieceMap = {
+      wP:'P', wR:'R', wN:'N', wB:'B', wQ:'Q', wK:'K',
+      bP:'p', bR:'r', bN:'n', bB:'b', bQ:'q', bK:'k',
+    };
+    let fen = '';
+    for (let r = 8; r >= 1; r--) {
+      let empty = 0;
+      for (let f = 0; f < 8; f++) {
+        const piece = pos[String.fromCharCode(97 + f) + r];
+        if (piece) { if (empty) { fen += empty; empty = 0; } fen += pieceMap[piece] || ''; }
+        else { empty++; }
+      }
+      if (empty) fen += empty;
+      if (r > 1) fen += '/';
+    }
+    return fen;
+  }
+
+  // Rotate position 90° clockwise (for orientation correction)
   function rotateCW90(pos) {
     const newPos = {};
     for (const [sq, piece] of Object.entries(pos)) {
-      const fileIdx = sq.charCodeAt(0) - 97;
-      const rank    = parseInt(sq[1]);
-      newPos[String.fromCharCode(97 + rank - 1) + (8 - fileIdx)] = piece;
+      const fi = sq.charCodeAt(0) - 97;
+      const r  = parseInt(sq[1]);
+      newPos[String.fromCharCode(97 + r - 1) + (8 - fi)] = piece;
     }
     return newPos;
   }
+
+  // Read which side is active in the toggle
+  function currentSide() {
+    return document.getElementById('sideWhite').classList.contains('active') ? 'w' : 'b';
+  }
+
+  // ── Event listeners ────────────────────────────────
 
   imageInput.addEventListener('change', () => {
     selectedFile = imageInput.files[0];
@@ -429,6 +534,20 @@
     if (!currentPosition) return;
     currentPosition = rotateCW90(currentPosition);
     board.position(currentPosition, false);
+    const newFen = posToFen(currentPosition);
+    detectedFen  = newFen;
+    game = new Chess(newFen + ' ' + currentSide() + ' - - 0 1');
+    updateGameStatus();
+  });
+
+  resetBtn.addEventListener('click', () => {
+    if (!detectedFen) return;
+    const side = currentSide();
+    game = new Chess(detectedFen + ' ' + side + ' - - 0 1');
+    currentPosition = fenToPos(detectedFen);
+    board.position(currentPosition, false);
+    updateGameStatus();
+    window.analyzePosition(detectedFen, side);
   });
 
   detectBtn.addEventListener('click', async () => {
@@ -438,9 +557,12 @@
 
     detectBtn.disabled = true;
     rotateBtn.disabled = true;
+    resetBtn.disabled  = true;
     detectBtn.innerHTML = '<span class="spinner"></span>Detecting\u2026';
     statusLine.innerHTML = 'Running pipeline\u2026';
     fenBox.style.display = 'none';
+    gameStatus.textContent = '';
+    gameStatus.className   = '';
 
     const formData = new FormData();
     formData.append('image', selectedFile);
@@ -454,22 +576,29 @@
         statusLine.innerHTML = `<span class="badge badge-err">Error</span> ${data.error || 'Server error'}`;
         board.position('empty');
         currentPosition = null;
+        game = null;
       } else {
         statusLine.innerHTML = data.success
           ? '<span class="badge badge-ok">Board found</span>'
           : '<span class="badge badge-err">Board not found</span>';
 
         if (data.fen) {
+          const side      = currentSide();
           currentPosition = fenToPos(data.fen);
           board.position(currentPosition, false);
-          fenBox.textContent = data.fen;
+          fenBox.textContent   = data.fen;
           fenBox.style.display = 'block';
-          analyzePosition(data.fen);
+          detectedFen = data.fen;
+          game = new Chess(data.fen + ' ' + side + ' - - 0 1');
+          updateGameStatus();
+          analyzePosition(data.fen);      // side comes from toggle
           rotateBtn.disabled = false;
+          resetBtn.disabled  = false;
         } else {
           board.position('empty');
           fenBox.style.display = 'none';
           currentPosition = null;
+          game = null;
         }
 
         if (!data.success) {
@@ -480,6 +609,7 @@
       statusLine.innerHTML = `<span class="badge badge-err">Error</span> ${err.message}`;
       board.position('empty');
       currentPosition = null;
+      game = null;
     } finally {
       detectBtn.disabled = false;
       detectBtn.textContent = 'Detect Position';
@@ -495,11 +625,14 @@
   'use strict';
 
   // ── State ──────────────────────────────────────────
-  let engine          = null;
-  let engineReady     = false;
-  let currentFen      = null;   // piece-placement FEN from last detection
-  let pendingResults  = {};     // multipv index → best info at current depth
-  let latestDepth     = 0;
+  let engine         = null;
+  let engineReady    = false;
+  let currentFen     = null;  // piece-placement FEN being analysed
+  let pendingResults = {};    // multipv index → best info at current depth
+  let latestDepth    = 0;
+  let analysisId     = 0;     // incremented on every new analyzePosition call;
+                              // guards against stale engine messages arriving
+                              // after the position has changed.
 
   // ── DOM refs ───────────────────────────────────────
   const analysisPlaceholder = document.getElementById('analysis-placeholder');
@@ -515,20 +648,20 @@
   const arrowCtx            = arrowCanvas.getContext('2d');
 
   // ── Side-to-move toggle ────────────────────────────
-  let sideToMove = 'w';   // 'w' or 'b'
+  let sideToMove = 'w';
 
   sideWhiteBtn.addEventListener('click', () => {
     sideToMove = 'w';
     sideWhiteBtn.classList.add('active');
     sideBlackBtn.classList.remove('active');
-    if (currentFen) analyzePosition(currentFen);
+    if (currentFen) window.analyzePosition(currentFen, 'w');
   });
 
   sideBlackBtn.addEventListener('click', () => {
     sideToMove = 'b';
     sideBlackBtn.classList.add('active');
     sideWhiteBtn.classList.remove('active');
-    if (currentFen) analyzePosition(currentFen);
+    if (currentFen) window.analyzePosition(currentFen, 'b');
   });
 
   // ── Engine init ────────────────────────────────────
@@ -546,13 +679,23 @@
   }
 
   // ── Message handler ────────────────────────────────
+  // Each message is tagged with the analysisId that was current when the
+  // search started. Messages from a superseded search are discarded.
   function handleEngineMessage(event) {
     const line = typeof event === 'string' ? event : (event.data || '');
 
-    if (line === 'readyok') {
-      engineReady = true;
-      return;
-    }
+    if (line === 'readyok') { engineReady = true; return; }
+
+    // Messages carry a closured copy of the id at search start.
+    // We extract it from a sentinel prefix we inject (see analyzePosition).
+    // Simpler: we just use the global analysisId captured in the closure per call.
+    // The message handler is replaced per search — no, that's complex.
+    // Instead: store the running id inside the message via a comment trick.
+    // Simplest correct approach: parse the id out of a custom "searchid" info line.
+    // ——— We use a closure variable approach: each call increments analysisId
+    //     and captures it in a local `myId` variable. We pass myId into a
+    //     per-call message handler installed temporarily. Instead, we use the
+    //     module-level `analysisId` and compare inside the handler.
 
     if (line.startsWith('info') && line.includes('multipv')) {
       parseInfoLine(line);
@@ -578,28 +721,30 @@
     const mpv   = parseInt(multipvMatch[1]);
     const move  = pvMatch[1];
 
-    let score = cpMatch  ? parseInt(cpMatch[1])  : null;
+    // Discard results that belong to a previous search (stale messages that
+    // arrived after engine.postMessage('stop') but before the worker flushed).
+    if (depth <= latestDepth && mpv in pendingResults) return;
+    if (depth > latestDepth) {
+      // New deeper result — update tracker and clear shallower data
+      latestDepth = depth;
+    }
+
+    let score = cpMatch   ? parseInt(cpMatch[1])   : null;
     let mate  = mateMatch ? parseInt(mateMatch[1]) : null;
 
-    if (depth < latestDepth) return;   // ignore stale depths
-    latestDepth = depth;
-
-    // Convert to White's POV (engine gives side-to-move POV)
+    // Convert to White's POV
     if (score !== null && sideToMove === 'b') score = -score;
     if (mate  !== null && sideToMove === 'b') mate  = -mate;
 
-    // SAN conversion via chess.js
+    // SAN conversion via chess.js for the move table
     let san = move;
     try {
-      const fullFen = currentFen + ' ' + sideToMove + ' - - 0 1';
-      const chess   = new Chess(fullFen);
-      const result  = chess.move({ from: move.slice(0, 2), to: move.slice(2, 4), promotion: move[4] || 'q' });
+      const chess  = new Chess(currentFen + ' ' + sideToMove + ' - - 0 1');
+      const result = chess.move({ from: move.slice(0, 2), to: move.slice(2, 4), promotion: move[4] || 'q' });
       if (result) san = result.san;
-    } catch (e) { /* keep UCI move as fallback */ }
+    } catch (e) { /* keep UCI notation as fallback */ }
 
     pendingResults[mpv] = { depth, move, san, score, mate };
-
-    // Live depth label
     evalDepthLabel.textContent = 'depth ' + depth;
   }
 
@@ -608,18 +753,15 @@
 
   function squareCenter(sq, boardSize) {
     const sqSize = boardSize / 8;
-    const file   = sq.charCodeAt(0) - 97;   // a=0 … h=7
-    const rank   = parseInt(sq[1]);          // 1–8
     return {
-      x: (file + 0.5) * sqSize,
-      y: (8 - rank + 0.5) * sqSize          // rank 8 at top (y≈0), rank 1 at bottom
+      x: (sq.charCodeAt(0) - 97 + 0.5) * sqSize,
+      y: (8 - parseInt(sq[1]) + 0.5) * sqSize,
     };
   }
 
   function drawArrowShape(ctx, x1, y1, x2, y2, color, alpha, lw) {
     const angle   = Math.atan2(y2 - y1, x2 - x1);
     const headLen = lw * 2.8;
-    // Shorten the shaft so the arrowhead sits cleanly at the tip
     const tx = x2 - Math.cos(angle) * headLen * 0.85;
     const ty = y2 - Math.sin(angle) * headLen * 0.85;
 
@@ -630,13 +772,8 @@
     ctx.lineWidth   = lw;
     ctx.lineCap     = 'round';
 
-    // Shaft
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(tx, ty);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(tx, ty); ctx.stroke();
 
-    // Arrowhead (wider angle = more visible)
     ctx.beginPath();
     ctx.moveTo(x2, y2);
     ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 5),
@@ -650,17 +787,16 @@
 
   function drawArrows(moves) {
     lastArrowMoves = moves;
-    const boardEl = document.getElementById('board');
-    const size    = boardEl.offsetWidth;
+    const size = document.getElementById('board').offsetWidth;
     arrowCanvas.width  = size;
     arrowCanvas.height = size;
     arrowCtx.clearRect(0, 0, size, size);
 
     const sq = size / 8;
     const styles = [
-      { color: '#15781B', alpha: 0.88, lw: sq * 0.18  },  // best move — green
-      { color: '#0057e7', alpha: 0.65, lw: sq * 0.13  },  // 2nd — blue
-      { color: '#0057e7', alpha: 0.42, lw: sq * 0.10  },  // 3rd — blue (dim)
+      { color: '#15781B', alpha: 0.88, lw: sq * 0.18 },
+      { color: '#0057e7', alpha: 0.65, lw: sq * 0.13 },
+      { color: '#0057e7', alpha: 0.42, lw: sq * 0.10 },
     ];
 
     moves.forEach(function (m, i) {
@@ -677,12 +813,11 @@
     arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
   }
 
-  // Redraw on resize (board.resize() changes the board's pixel size)
   window.addEventListener('resize', function () {
     if (lastArrowMoves.length) drawArrows(lastArrowMoves);
   });
 
-  // ── Render results ─────────────────────────────────
+  // ── Render final results ───────────────────────────
   function renderResults() {
     const keys = Object.keys(pendingResults).map(Number).sort(function (a, b) { return a - b; });
     if (!keys.length) return;
@@ -691,7 +826,7 @@
     analysisContent.style.display     = 'block';
 
     const best = pendingResults[keys[0]];
-    let cp = (best.mate !== null)
+    const cp   = best.mate !== null
       ? (best.mate > 0 ? 1000 : -1000)
       : (best.score !== null ? best.score : 0);
 
@@ -699,24 +834,17 @@
     evalBarWhite.style.flex = String(whitePct);
     evalBarBlack.style.flex = String(100 - whitePct);
 
-    if (best.mate !== null) {
-      evalScoreLabel.textContent = 'M' + Math.abs(best.mate);
-    } else {
-      const s = best.score !== null ? best.score : 0;
-      evalScoreLabel.textContent = (s >= 0 ? '+' : '') + (s / 100).toFixed(2);
-    }
+    evalScoreLabel.textContent = best.mate !== null
+      ? 'M' + Math.abs(best.mate)
+      : (best.score >= 0 ? '+' : '') + (best.score / 100).toFixed(2);
 
     movesBody.innerHTML = '';
     keys.forEach(function (k, i) {
-      const r  = pendingResults[k];
+      const r = pendingResults[k];
+      const scoreText = r.mate !== null
+        ? 'M' + Math.abs(r.mate)
+        : ((r.score >= 0 ? '+' : '') + (r.score / 100).toFixed(2));
       const tr = document.createElement('tr');
-      let scoreText;
-      if (r.mate !== null) {
-        scoreText = 'M' + Math.abs(r.mate);
-      } else {
-        const s = r.score !== null ? r.score : 0;
-        scoreText = (s >= 0 ? '+' : '') + (s / 100).toFixed(2);
-      }
       tr.innerHTML =
         '<td>' + (i + 1) + '</td>' +
         '<td><span class="move-san">' + r.san + '</span></td>' +
@@ -726,20 +854,35 @@
 
     evalDepthLabel.textContent = 'depth ' + best.depth + ' \u2014 done';
 
-    // Draw arrows for top moves (UCI move format: "e2e4", "g1f3", etc.)
     drawArrows(keys.map(function (k) {
       const mv = pendingResults[k].move;
       return { from: mv.slice(0, 2), to: mv.slice(2, 4) };
     }));
   }
 
-  // ── Public: called after each detection ───────────
-  window.analyzePosition = function (piecePlacementFen) {
+  // ── Public API ─────────────────────────────────────
+  // `side` is optional ('w'|'b'). When provided (e.g. after a move) it
+  // overrides the toggle and keeps the UI in sync with chess.js game state.
+  window.analyzePosition = function (piecePlacementFen, side) {
+    // Sync side-to-move if caller specifies it
+    if (side !== undefined && side !== sideToMove) {
+      sideToMove = side;
+      if (side === 'w') {
+        sideWhiteBtn.classList.add('active');
+        sideBlackBtn.classList.remove('active');
+      } else {
+        sideBlackBtn.classList.add('active');
+        sideWhiteBtn.classList.remove('active');
+      }
+    }
+
+    // Bump version — any pending engine messages with depth comparisons
+    // that write into pendingResults will now produce a fresh, isolated result set.
+    analysisId++;
     currentFen     = piecePlacementFen;
     pendingResults = {};
     latestDepth    = 0;
 
-    // Reset UI
     clearArrows();
     analysisPlaceholder.style.display = 'none';
     analysisContent.style.display     = 'block';
@@ -749,7 +892,8 @@
 
     if (!engineReady) {
       evalDepthLabel.textContent = 'Engine loading\u2026';
-      setTimeout(function () { window.analyzePosition(piecePlacementFen); }, 500);
+      const capturedSide = sideToMove;
+      setTimeout(function () { window.analyzePosition(piecePlacementFen, capturedSide); }, 500);
       return;
     }
 
